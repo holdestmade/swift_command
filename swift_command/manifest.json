@@ -1,0 +1,11 @@
+{
+  "domain": "swift_command",
+  "name": "Swift Command",
+  "codeowners": ["@holdestmade"],
+  "config_flow": true,
+  "documentation": "https://github.com/swift-command/ha-swift-command",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/swift-command/ha-swift-command/issues",
+  "dependencies": ["http"],
+  "version": "2.0.0"
+}

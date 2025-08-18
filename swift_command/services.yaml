@@ -1,0 +1,22 @@
+send_can_command:
+  name: Send CAN command
+  description: Send a raw CAN command to the vehicle via Swift Command.
+  fields:
+    endpoint:
+      name: Endpoint
+      description: Numeric endpoint appended to the CAN URL (e.g., 11).
+      required: true
+      example: 11
+      selector:
+        number:
+          min: 0
+          max: 255
+          step: 1
+          mode: box
+    payload:
+      name: Payload
+      description: JSON array payload to send (e.g., [5,19,100,100,4,0,0,0]).
+      required: true
+      example: "[5,19,100,100,4,0,0,0]"
+      selector:
+        object:

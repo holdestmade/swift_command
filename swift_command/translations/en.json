@@ -1,0 +1,64 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Swift Command Setup",
+        "description": "Enter your Swift Command credentials.",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Swift Command",
+        "description": "Your Swift Command session has expired or the credentials have changed. Please sign in again.",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the Swift Command service. Please check your network connection.",
+      "invalid_auth": "Invalid username or password.",
+      "unknown": "An unknown error occurred."
+    },
+    "abort": {
+      "already_configured": "This Swift Command account is already configured.",
+      "reauth_successful": "Reauthentication successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Swift Command Options",
+        "data": {
+          "update_interval": "Update Interval",
+          "can_bus_timeout": "CAN Bus Timeout",
+          "night_start_hour": "Night Mode Start Hour",
+          "night_end_hour": "Night Mode End Hour",
+          "can_sections": "CAN Sections"
+        },
+        "data_description": {
+          "can_sections": "Choose which CAN sections to expose as entities."
+        }
+      }
+    }
+  },
+  "services": {
+    "send_can_command": {
+      "name": "Send CAN command",
+      "description": "Send a raw CAN command to the vehicle via Swift Command.",
+      "fields": {
+        "endpoint": {
+          "name": "Endpoint",
+          "description": "Numeric endpoint appended to the CAN URL (e.g., 11)."
+        },
+        "payload": {
+          "name": "Payload",
+          "description": "JSON array payload to send (e.g., [5,19,100,100,4,0,0,0])."
+        }
+      }
+    }
+  }
+}
