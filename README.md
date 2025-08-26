@@ -1,6 +1,6 @@
 # Swift Command
 
-Custom component for Home Assistant integrating Swift Command / Swift Remote systems.
+Custom component for [Home Assistant]{https://www.home-assistant.io/} integrating Swift Command / Swift Remote systems.
 
 ## Installation
 1. Copy the `swift_command` directory into your Home Assistant `custom_components` folder.
