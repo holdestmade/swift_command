@@ -56,5 +56,5 @@ class SwiftCommandUpdateButton(SwiftCommandEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        # Kick off an immediate refresh from the coordinator
-        await self.coordinator.async_request_refresh()
+        # Force refresh of both customer (vehicle) data and CAN, even during night hours.
+        await self.coordinator.async_force_refresh()
