@@ -83,7 +83,7 @@ class SwiftCommandCoordinator(DataUpdateCoordinator):
         self.asset_id: str | None = None
 
         self._last_full_update_time: datetime | None = None
-        self._last_can_update_time: datetime | None = None  # NEW: timestamp of last successful CAN payload
+        self._last_can_update_time: datetime | None = None  # timestamp of last successful CAN payload
         self._reauth_initiated_at: datetime | None = None  # throttle reauth popups
 
         # -------- Daily counters (reset at local midnight) --------
@@ -155,6 +155,7 @@ class SwiftCommandCoordinator(DataUpdateCoordinator):
             _LOGGER.info("Sent CAN command to %s", url)
         except (httpx.RequestError, httpx.HTTPStatusError) as err:
             _LOGGER.error("Error sending CAN command: %s", err)
+        # Normal refresh (respects night throttle). Leave as-is.
         await self.async_request_refresh()
 
     async def _login(self) -> None:
@@ -185,21 +186,14 @@ class SwiftCommandCoordinator(DataUpdateCoordinator):
         return (dt_util.utcnow() - self._reauth_initiated_at) > timedelta(hours=6)
 
     async def _maybe_start_reauth(self) -> None:
+        """Minimal reauth kicker; avoids repeated prompts."""
         if not self._should_prompt_reauth():
-            _LOGGER.debug("Reauth already initiated recently; suppressing popup.")
             return
         self._reauth_initiated_at = dt_util.utcnow()
-        _LOGGER.info("Starting reauth flow for %s", DOMAIN)
-        try:
-            await self.hass.config_entries.flow.async_init(
-                DOMAIN,
-                context={"source": "reauth", "entry_id": self.entry.entry_id},
-                data=self.entry.data,
-            )
-        except Exception:
-            _LOGGER.debug("Could not start reauth flow (already active?).")
+        _LOGGER.warning("Swift Command authentication appears invalid; re-authentication may be required.")
 
     async def _async_update_data(self):
+        """Coordinator's normal refresh cycle (may throttle CAN at night)."""
         now = dt_util.now()
         self._rollover_counters_if_needed(now)
 
@@ -245,7 +239,6 @@ class SwiftCommandCoordinator(DataUpdateCoordinator):
                         )
                         can_response.raise_for_status()
                         can_bus_data = can_response.json()
-                        # NEW: mark last successful CAN payload time (only when payload present)
                         if isinstance(can_bus_data, dict) and can_bus_data:
                             self._last_can_update_time = now
                     except httpx.HTTPStatusError as cerr:
@@ -280,3 +273,77 @@ class SwiftCommandCoordinator(DataUpdateCoordinator):
         # If we reach here, both attempts failed → prompt reauth
         await self._maybe_start_reauth()
         raise UpdateFailed("Authentication failed after retry.")
+
+    # ----------------------- Forced refresh with retry -----------------------
+    async def async_force_refresh(self) -> None:
+        """Force refresh of both customer and CAN data, bypassing night-mode throttling.
+
+        Unlike the normal cycle, this ALWAYS attempts CAN (if asset_id exists) and will
+        perform a silent re-login and retry once on HTTP 401 errors.
+        """
+        now = dt_util.now()
+        self._rollover_counters_if_needed(now)
+
+        # Ensure we have a token
+        if not self.bearer_token:
+            await self._login()
+
+        def _headers() -> dict[str, str]:
+            return {"Authorization": f"Bearer {self.bearer_token}"} if self.bearer_token else {}
+
+        # ---------- CUSTOMER (with 401 retry) ----------
+        customer_data = {}
+        for attempt in (1, 2):
+            try:
+                self._api_calls_today += 1
+                customer_data_url = CUSTOMER_DATA_URL.format(customer_id=self.customer_id)
+                resp = await self.client.get(customer_data_url, headers=_headers(), timeout=10)
+                resp.raise_for_status()
+                customer_data = resp.json()
+                self.asset_id = customer_data.get("vehicles", [{}])[0].get("asset")
+                break  # success
+            except httpx.HTTPStatusError as err:
+                if err.response.status_code == 401 and attempt == 1:
+                    _LOGGER.info("Force refresh: 401 on customer fetch. Re-logging in and retrying once.")
+                    self.bearer_token = None
+                    await self._login()
+                    continue
+                self._api_calls_failed_today += 1
+                # Surface the same error signature the log showed (but with retry handled)
+                raise UpdateFailed(f"Forced refresh failed while fetching customer data: {err}") from err
+            except (httpx.RequestError, json.JSONDecodeError) as err:
+                self._api_calls_failed_today += 1
+                raise UpdateFailed(f"Forced refresh failed while fetching customer data: {err}") from err
+
+        # ---------- CAN (with 401 retry, always attempted if asset_id) ----------
+        can_bus_data: dict = {}
+        if self.asset_id:
+            for attempt in (1, 2):
+                try:
+                    self._api_can_calls_today += 1
+                    timeout_seconds = self.entry.options.get("can_bus_timeout", DEFAULT_CAN_BUS_TIMEOUT)
+                    can_bus_url = CAN_BUS_BASE_URL.format(asset_id=self.asset_id)
+                    resp = await self.client.get(can_bus_url, headers=_headers(), timeout=timeout_seconds)
+                    resp.raise_for_status()
+                    can_bus_data = resp.json()
+                    if isinstance(can_bus_data, dict) and can_bus_data:
+                        self._last_can_update_time = now
+                    break
+                except httpx.HTTPStatusError as err:
+                    if err.response.status_code == 401 and attempt == 1:
+                        _LOGGER.info("Force refresh: 401 on CAN fetch. Re-logging in and retrying once.")
+                        self.bearer_token = None
+                        await self._login()
+                        continue
+                    self._api_can_calls_failed_today += 1
+                    _LOGGER.warning("Forced CAN fetch HTTP error (%s): %s", err.response.status_code, err)
+                    break  # don't fail the whole press due to CAN
+                except (asyncio.TimeoutError, httpx.RequestError, json.JSONDecodeError) as err:
+                    self._api_can_calls_failed_today += 1
+                    _LOGGER.warning("Forced CAN fetch error (%s): %s", type(err).__name__, err)
+                    break  # don't fail the whole press due to CAN
+
+        # Update timestamps and push data
+        self._last_full_update_time = now
+        self.async_set_updated_data({"customer_data": customer_data, "can_bus_data": can_bus_data})
+    # -------------------------------------------------------------------------
