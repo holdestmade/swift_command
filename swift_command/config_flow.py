@@ -87,7 +87,7 @@ class SwiftCommandConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             try:
-                info = await validate_input(self.hass, user_input)
+                await validate_input(self.hass, user_input)
                 # Update the existing entry with new creds
                 if self._reauth_entry:
                     data = {**self._reauth_entry.data, CONF_USERNAME: user_input[CONF_USERNAME], CONF_PASSWORD: user_input[CONF_PASSWORD]}
