@@ -1,16 +1,57 @@
-# Swift Command
+# Swift Command Home Assistant Integration
 
-Custom component for [Home Assistant](https://www.home-assistant.io/) integrating [Swift Command / Swift Remote](https://www.swiftcommand.co.uk/) systems.
+This repository contains a custom [Home Assistant](https://www.home-assistant.io/) integration for [Swift Command / Swift Remote](https://www.swiftcommand.co.uk/) connected caravans and motorhomes. It exposes telemetry from the Swift Command cloud, including CAN bus values, and allows limited remote control of on-board systems such as the PSU and lighting.
+
+## Features
+
+* **Account based config flow** – authenticate with your Swift Command credentials directly from the Home Assistant UI.
+* **Coordinated polling** – a shared update coordinator manages customer data and CAN bus refreshes with built-in throttling for night hours.
+* **Entity coverage** – automatically generates sensors, binary sensors, switches, lights and buttons based on the values present in the API payloads.
+* **Diagnostics** – exposes coordinator counters and timestamp sensors, plus a full redacted diagnostics download via the Home Assistant diagnostics panel.
+* **Custom service** – call `swift_command.send_can_command` to push manual CAN payloads to your vehicle when needed.
+
+## Requirements
+
+* A working Swift Command / Swift Remote account with a compatible vehicle.
+* Home Assistant 2023.8 or newer (the integration relies on modern config flow selectors and the shared `httpx` client).
 
 ## Installation
-1. Copy the `swift_command` directory into your Home Assistant `custom_components` folder.
-2. Restart Home Assistant.
+
+1. Copy or symlink the `swift_command` directory into your Home Assistant `config/custom_components` folder. HACS users can add this repository as a custom integration.
+2. Restart Home Assistant to load the component.
 
 ## Configuration
-The integration uses a config flow available from the Home Assistant UI (`Settings -> Devices & Services -> Add Integration`). Search for **Swift Command** and follow the prompts to complete setup.
 
-## Entities
-Depending on your hardware, the component can expose switches, lights, sensors and other entities exposed by the Swift Command API.
+1. Navigate to **Settings → Devices & Services → + Add Integration** in Home Assistant.
+2. Search for **Swift Command** and sign in with the same email address and password you use for the official Swift Command mobile app.
+3. After the integration is created you can open the entry's **Configure** dialog to tweak:
+   * Update interval (minutes)
+   * CAN bus timeout (seconds)
+   * Night mode start/end hours (reduces CAN polling overnight)
+   * CAN sections to expose (choose which nested sections create entities)
+
+## Available Entities
+
+Depending on the telemetry returned for your vehicle you may see:
+
+* **Sensors** – customer metadata (brand, model, voltages) plus derived power readings calculated from amps × volts.
+* **Binary sensors** – PSU states, warning flags, CAN availability and token status.
+* **Switches & lights** – remote toggles for the main PSU output and lighting circuits, using optimistic updates for a responsive UI.
+* **Buttons** – a manual refresh button that forces an immediate CAN + customer data update.
+* **Device tracker** – vehicle GPS coordinates reported by Swift Command.
+
+All entities are attached to a single device representing the vehicle chassis number.
 
 ## Services
-Additional services are defined in `services.yaml` inside the component directory for interacting with the system.
+
+The integration registers one service: `swift_command.send_can_command`. Supply an `endpoint` (integer appended to the CAN URL) and a JSON-compatible `payload` array. This calls the same helper used by the built-in switch and light platforms.
+
+## Troubleshooting
+
+* Check **Settings → Devices & Services → Swift Command → Diagnostics** for the latest coordinator timestamps and API counters.
+* If authentication errors persist, re-run the config flow's re-auth step when prompted and ensure MFA is disabled on the Swift Command website.
+* The integration intentionally throttles CAN refreshes overnight – use the **Update Now** button entity to force an on-demand refresh when needed.
+
+## Development
+
+Issues and feature requests can be logged on the [project issue tracker](https://github.com/swift-command/ha-swift-command/issues). Contributions are welcome; please open a pull request describing your change.

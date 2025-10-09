@@ -76,7 +76,7 @@ class SwiftCommandConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Create the options flow."""
-        return SwiftCommandOptionsFlow()
+        return SwiftCommandOptionsFlow(config_entry)
 
     async def async_step_reauth(self, user_input=None):
         """Start reauthentication flow."""
@@ -112,6 +112,11 @@ class SwiftCommandConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class SwiftCommandOptionsFlow(config_entries.OptionsFlow):
     """Handle an options flow for Swift Command."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Store the config entry so defaults can be pre-filled."""
+        super().__init__(config_entry)
+        self.config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
