@@ -262,6 +262,7 @@ class SwiftCommandCoordinator(DataUpdateCoordinator):
                         continue
                     except UpdateFailed as login_err:
                         _LOGGER.warning("Silent re-login failed: %s", login_err)
+                        self._api_calls_failed_today += 1
                         break
                 else:
                     self._api_calls_failed_today += 1

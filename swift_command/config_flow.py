@@ -166,7 +166,7 @@ class SwiftCommandOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Optional(
                     "can_sections",
-                    default=self.config_entry.options.get("can_sections", DEFAULT_CAN_SECTIONS),
+                    default=options.get("can_sections", DEFAULT_CAN_SECTIONS),
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(options=DEFAULT_CAN_SECTIONS, multiple=True, mode=selector.SelectSelectorMode.LIST)
                 ),

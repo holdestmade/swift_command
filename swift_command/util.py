@@ -42,7 +42,7 @@ def calculate_power_watts(
 ) -> float | None:
     """Calculate power (W) given current and a measured-or-default voltage.
 
-    - If `measured_volts` is truthy, it is used; otherwise `default_volts`.
+    - If `measured_volts` is not None, it is used; otherwise `default_volts`.
     - If `amps` is None, returns None.
     - When `absolute=True`, the absolute value of current is used (useful for battery charge/discharge).
     """
