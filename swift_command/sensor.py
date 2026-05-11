@@ -267,6 +267,11 @@ async def async_setup_entry(
                 # Booleans are handled by binary_sensor.py
                 continue
 
+            # Exclude values that have dedicated/derived sensors, regardless of type
+            # (these would otherwise collide on unique_id with the derived power sensors).
+            if key.lower() in {"batteryamp", "solaramps", "accurrent", "leisurebatteryvoltage"}:
+                continue
+
             # Everything else (numbers/strings) -> consider dynamic sensor
             human_readable_key = key.replace("_", " ").title().replace("Psu", "PSU")
 
@@ -301,9 +306,6 @@ async def async_setup_entry(
                 elif "humiditylevel" in k:
                     sensor_device_class = SensorDeviceClass.HUMIDITY
                     unit_of_measurement = "%"
-                # Exclude values that have dedicated/derived sensors
-                if k in ["batteryamp", "solaramps", "accurrent", "leisurebatteryvoltage"]:
-                    continue
 
             entities.append(
                 SwiftCommandSensor(
