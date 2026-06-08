@@ -17,7 +17,16 @@ This repository contains a custom [Home Assistant](https://www.home-assistant.io
 
 ## Installation
 
-1. Copy or symlink the `swift_command` directory into your Home Assistant `config/custom_components` folder. HACS users can add this repository as a custom integration.
+### HACS (recommended)
+
+1. In Home Assistant, open **HACS → Integrations**.
+2. Click the overflow menu (⋮) in the top-right and choose **Custom repositories**.
+3. Add `https://github.com/holdestmade/swift_command` with the category **Integration**.
+4. Search for **Swift Command** in HACS, install it, and restart Home Assistant.
+
+### Manual
+
+1. Copy the `custom_components/swift_command` directory into your Home Assistant `config/custom_components` folder.
 2. Restart Home Assistant to load the component.
 
 ## Configuration
@@ -54,4 +63,4 @@ The integration registers one service: `swift_command.send_can_command`. Supply 
 
 ## Development
 
-Issues and feature requests can be logged on the [project issue tracker](https://github.com/swift-command/ha-swift-command/issues). Contributions are welcome; please open a pull request describing your change.
+Issues and feature requests can be logged on the [project issue tracker](https://github.com/holdestmade/swift_command/issues). Contributions are welcome; please open a pull request describing your change.
