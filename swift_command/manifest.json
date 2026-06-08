@@ -7,5 +7,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/swift-command/ha-swift-command/issues",
   "dependencies": ["http"],
-  "version": "2.1.1"
+  "version": "2.1.2"
 }
