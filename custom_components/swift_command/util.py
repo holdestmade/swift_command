@@ -2,9 +2,32 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Iterable
 
 _LOGGER = logging.getLogger(__name__)
+
+# Words rendered fully uppercase in friendly names
+_ACRONYMS = {"psu", "enum", "ac", "dc", "id", "gps", "cp", "ec630"}
+
+_CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_ACRONYM_BOUNDARY_RE = re.compile(r"(?<=[A-Z])(?=[A-Z][a-z])")
+
+
+def prettify_key(key: str) -> str:
+    """Turn an API key like 'batteryCurrentDirection' into 'Battery Current Direction'.
+
+    Splits underscores and camelCase boundaries into words, title-cases each
+    word, and uppercases known acronyms (e.g. 'electricSettingEnum' becomes
+    'Electric Setting ENUM', 'psuSoftwareNumber' becomes 'PSU Software Number').
+    """
+    spaced = key.replace("_", " ")
+    spaced = _CAMEL_BOUNDARY_RE.sub(" ", spaced)
+    spaced = _ACRONYM_BOUNDARY_RE.sub(" ", spaced)
+    return " ".join(
+        word.upper() if word.lower() in _ACRONYMS else word.title()
+        for word in spaced.split()
+    )
 
 
 def get_nested_value(data: dict | list | None, keys: Iterable[Any]) -> Any | None:
