@@ -18,7 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import CONF_CAN_SECTIONS, DEFAULT_CAN_SECTIONS, DOMAIN
 from .coordinator import SwiftCommandCoordinator
 from .entity import SwiftCommandEntity
-from .util import calculate_power_watts, get_nested_value
+from .util import calculate_power_watts, get_nested_value, prettify_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -244,7 +244,7 @@ async def async_setup_entry(
             if k in _EXCLUDED_CAN_KEYS:
                 continue
 
-            human_readable_key = key.replace("_", " ").title().replace("Psu", "PSU")
+            human_readable_key = prettify_key(key)
 
             device_class = None
             state_class = None

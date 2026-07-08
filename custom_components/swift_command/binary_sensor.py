@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import CONF_CAN_SECTIONS, DEFAULT_CAN_SECTIONS, DOMAIN
 from .coordinator import SwiftCommandCoordinator
 from .entity import SwiftCommandEntity
-from .util import get_nested_value
+from .util import get_nested_value, prettify_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ async def async_setup_entry(
             if isinstance(value, dict):
                 add_can_binary_sensors(value, current_full_path)
             elif isinstance(value, bool):
-                human_readable_key = key.replace("_", " ").title().replace("Psu", "PSU")
+                human_readable_key = prettify_key(key)
 
                 device_class = None
                 icon = None
