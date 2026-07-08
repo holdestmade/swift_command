@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, Callable
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -11,20 +11,31 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import SwiftCommandCoordinator
-from .const import DEFAULT_CAN_SECTIONS, DOMAIN
+from .const import CONF_CAN_SECTIONS, DEFAULT_CAN_SECTIONS, DOMAIN
+from .coordinator import SwiftCommandCoordinator
 from .entity import SwiftCommandEntity
-from .util import get_nested_value, calculate_power_watts
+from .util import calculate_power_watts, get_nested_value
 
 _LOGGER = logging.getLogger(__name__)
 
 _WARNED_NO_VEHICLE = False  # throttle noisy logs when vehicle payload is absent
 
 _NUM_RE = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
+
+# Firmware/identity-like CAN fields that belong in diagnostics
+_DIAGNOSTIC_CAN_KEYS = {
+    "cpsoftwareversionnumber",
+    "psusoftwarenumber",
+    "ec630softwareversionnumber",
+}
+
+# CAN fields that have dedicated/derived sensors and must not get a dynamic one
+# (these would otherwise collide on unique_id with the derived power sensors).
+_EXCLUDED_CAN_KEYS = {"batteryamp", "solaramps", "accurrent", "leisurebatteryvoltage"}
 
 
 def _to_float(value: str | int | float | None) -> float | None:
@@ -57,43 +68,6 @@ def _flatten_json(obj: Any, prefix: str = "") -> dict[str, Any]:
 
     _walk(obj, prefix)
     return flat
-
-
-class SwiftCommandJsonOverviewSensor(SwiftCommandEntity, SensorEntity):
-    """Diagnostic sensor: number of keys + expose full JSON payload as attributes."""
-
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:code-json"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-
-    def __init__(self, coordinator, chassis_number, name_suffix, root_key):
-        super().__init__(coordinator, chassis_number)
-        self._root_key = root_key
-        self._attr_name = name_suffix  # simplified (no "Swift Command" prefix)
-        self._attr_unique_id = f"{DOMAIN}_{self._chassis_number}_json_{root_key}"
-
-    @property
-    def native_value(self):
-        payload = (getattr(self.coordinator, "data", {}) or {}).get(self._root_key)
-        if not isinstance(payload, dict):
-            return None
-        flat = _flatten_json(payload)
-        return len(flat)
-
-    @property
-    def extra_state_attributes(self):
-        attrs = {}
-        payload = (getattr(self.coordinator, "data", {}) or {}).get(self._root_key)
-        if isinstance(payload, dict):
-            flat = _flatten_json(payload)
-            for k, v in flat.items():
-                if isinstance(v, (str, int, float, bool, type(None))):
-                    attrs[str(k)] = v
-                else:
-                    attrs[str(k)] = str(v)
-            attrs["payload_key"] = self._root_key
-            attrs["key_count"] = len(flat)
-        return attrs
 
 
 async def async_setup_entry(
@@ -200,13 +174,13 @@ async def async_setup_entry(
         },
     ]
 
-    # Derived power sensors (reuse helper for amps/volts->watts)
+    # Derived power sensors: amps * (measured or default volts) -> watts
     can_bus_power_sensors = [
         {
             "name_suffix": "Battery Power",
             "value_path": ["can_bus_data", "levels3", "batteryAmp"],  # A
-            "calculation_type": "watts",
-            "calculation_factor": 12.0,  # default V, replaced by measured leisureBatteryVoltage if present
+            "default_voltage": 12.0,
+            "voltage_path": ["can_bus_data", "levels3", "leisureBatteryVoltage"],
             "unit_of_measurement": "W",
             "device_class": SensorDeviceClass.POWER,
             "state_class": SensorStateClass.MEASUREMENT,
@@ -214,8 +188,8 @@ async def async_setup_entry(
         {
             "name_suffix": "Solar Power",
             "value_path": ["can_bus_data", "levels3", "solarAmps"],  # A
-            "calculation_type": "watts",
-            "calculation_factor": 18.0,  # default panel V, replaced by measured solarVoltage if present
+            "default_voltage": 18.0,
+            "voltage_path": ["can_bus_data", "levels3", "solarVoltage"],
             "unit_of_measurement": "W",
             "device_class": SensorDeviceClass.POWER,
             "state_class": SensorStateClass.MEASUREMENT,
@@ -223,8 +197,8 @@ async def async_setup_entry(
         {
             "name_suffix": "Mains Power",
             "value_path": ["can_bus_data", "levels3", "acCurrent"],  # A
-            "calculation_type": "watts",
-            "calculation_factor": 240.0,  # default AC V, replaced by measured acVoltage if present
+            "default_voltage": 240.0,
+            "voltage_path": ["can_bus_data", "levels3", "acVoltage"],
             "unit_of_measurement": "W",
             "device_class": SensorDeviceClass.POWER,
             "state_class": SensorStateClass.MEASUREMENT,
@@ -238,14 +212,13 @@ async def async_setup_entry(
                 chassis_number,
                 sensor_info["name_suffix"],
                 sensor_info["value_path"],
-                sensor_info.get("unit_of_measurement"),
-                sensor_info.get("device_class"),
-                sensor_info.get("state_class"),
-                sensor_info.get("icon"),
-                sensor_info.get("translation_key"),
-                sensor_info.get("calculation_factor"),
-                sensor_info.get("calculation_type"),
-                sensor_info.get("entity_category"),
+                unit_of_measurement=sensor_info.get("unit_of_measurement"),
+                device_class=sensor_info.get("device_class"),
+                state_class=sensor_info.get("state_class"),
+                icon=sensor_info.get("icon"),
+                default_voltage=sensor_info.get("default_voltage"),
+                voltage_path=sensor_info.get("voltage_path"),
+                entity_category=sensor_info.get("entity_category"),
             )
         )
 
@@ -267,44 +240,33 @@ async def async_setup_entry(
                 # Booleans are handled by binary_sensor.py
                 continue
 
-            # Exclude values that have dedicated/derived sensors, regardless of type
-            # (these would otherwise collide on unique_id with the derived power sensors).
-            if key.lower() in {"batteryamp", "solaramps", "accurrent", "leisurebatteryvoltage"}:
+            k = key.lower()
+            if k in _EXCLUDED_CAN_KEYS:
                 continue
 
-            # Everything else (numbers/strings) -> consider dynamic sensor
             human_readable_key = key.replace("_", " ").title().replace("Psu", "PSU")
 
-            sensor_device_class = None
-            sensor_state_class = None
+            device_class = None
+            state_class = None
             unit_of_measurement = None
-            icon = None
             entity_category = None
 
-            if isinstance(value, (int, float, str)):
-                k = key.lower()
-                # Move firmware/identity-like fields to diagnostics
-                if k in {
-                    "cpsoftwareversionnumber",
-                    "psusoftwarenumber",
-                    "ec630softwareversionnumber",
-                }:
-                    entity_category = EntityCategory.DIAGNOSTIC
+            if isinstance(value, (int, float, str)) and k in _DIAGNOSTIC_CAN_KEYS:
+                entity_category = EntityCategory.DIAGNOSTIC
 
             if isinstance(value, (int, float)):
-                sensor_state_class = SensorStateClass.MEASUREMENT
-                k = key.lower()
+                state_class = SensorStateClass.MEASUREMENT
                 if "voltage" in k:
-                    sensor_device_class = SensorDeviceClass.VOLTAGE
+                    device_class = SensorDeviceClass.VOLTAGE
                     unit_of_measurement = "V"
                 elif "current" in k:
-                    sensor_device_class = SensorDeviceClass.CURRENT
+                    device_class = SensorDeviceClass.CURRENT
                     unit_of_measurement = "A"
-                elif "temp" in k or "temperature" in k:
-                    sensor_device_class = SensorDeviceClass.TEMPERATURE
+                elif "temp" in k:
+                    device_class = SensorDeviceClass.TEMPERATURE
                     unit_of_measurement = "°C"
                 elif "humiditylevel" in k:
-                    sensor_device_class = SensorDeviceClass.HUMIDITY
+                    device_class = SensorDeviceClass.HUMIDITY
                     unit_of_measurement = "%"
 
             entities.append(
@@ -313,21 +275,16 @@ async def async_setup_entry(
                     chassis_number,
                     human_readable_key,
                     ["can_bus_data"] + current_full_path,
-                    unit_of_measurement,
-                    sensor_device_class,
-                    sensor_state_class,
-                    icon,
-                    None,
-                    None,
-                    None,
-                    entity_category,
+                    unit_of_measurement=unit_of_measurement,
+                    device_class=device_class,
+                    state_class=state_class,
+                    entity_category=entity_category,
                 )
             )
 
-    can_sections = config_entry.options.get("can_sections", DEFAULT_CAN_SECTIONS)
+    can_sections = config_entry.options.get(CONF_CAN_SECTIONS, DEFAULT_CAN_SECTIONS)
     for section in can_sections:
-        section_data = can_bus_data.get(section)
-        if section_data:
+        if section_data := can_bus_data.get(section):
             add_can_sensors(section_data, [section])
 
     # Coordinator last successful update timestamp(s)
@@ -346,62 +303,45 @@ class SwiftCommandSensor(SwiftCommandEntity, SensorEntity):
         chassis_number: str,
         name_suffix: str,
         value_path: list,
+        *,
         unit_of_measurement: str | None = None,
         device_class: SensorDeviceClass | None = None,
         state_class: SensorStateClass | None = None,
         icon: str | None = None,
-        translation_key: str | None = None,
-        calculation_factor: float | int | None = None,
-        calculation_type: str | None = None,
+        default_voltage: float | None = None,
+        voltage_path: list | None = None,
         entity_category: EntityCategory | None = None,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, chassis_number)
-        self._name_suffix = name_suffix
+        self._attr_name = name_suffix
         self._value_path = value_path
         self._attr_native_unit_of_measurement = unit_of_measurement
         self._attr_device_class = device_class
         self._attr_state_class = state_class
         self._attr_icon = icon
         self._attr_entity_category = entity_category
-        self._translation_key = translation_key
-        self._calculation_factor = float(calculation_factor) if calculation_factor is not None else None
-        self._calculation_type = calculation_type
+        self._default_voltage = float(default_voltage) if default_voltage is not None else None
+        self._voltage_path = voltage_path
 
         unique_id_part = "_".join(map(str, value_path)).lower().replace("can_bus_data_", "")
         self._attr_unique_id = f"{DOMAIN}_{self._chassis_number}_{unique_id_part}_sensor"
-
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor (simplified, no integration prefix)."""
-        return self._name_suffix
 
     @property
     def native_value(self):
         raw_value = get_nested_value(self.coordinator.data, self._value_path)
 
         # Derived calculation: amps * volts -> watts
-        if self._calculation_type == "watts" and self._calculation_factor is not None:
+        if self._default_voltage is not None:
             amps = _to_float(raw_value)
-            measured_v: float | None = None
-
-            # Try to infer the appropriate measured voltage source from the path/name
-            lower_name = self._name_suffix.lower()
-            if "mains" in lower_name or "ac" in lower_name or "accurrent" in "".join(map(str, self._value_path)).lower():
-                measured_v = _to_float(
-                    get_nested_value(self.coordinator.data, ["can_bus_data", "levels3", "acVoltage"])
-                )
-            elif "solar" in lower_name or "solaramps" in "".join(map(str, self._value_path)).lower():
-                measured_v = _to_float(
-                    get_nested_value(self.coordinator.data, ["can_bus_data", "levels3", "solarVoltage"])
-                )
-            else:  # battery by default
-                measured_v = _to_float(
-                    get_nested_value(self.coordinator.data, ["can_bus_data", "levels3", "leisureBatteryVoltage"])
-                )
-
-            watts = calculate_power_watts(amps, measured_v, self._calculation_factor, absolute=True)
-            return watts
+            measured_volts = (
+                _to_float(get_nested_value(self.coordinator.data, self._voltage_path))
+                if self._voltage_path
+                else None
+            )
+            return calculate_power_watts(
+                amps, measured_volts, self._default_voltage, absolute=True
+            )
 
         # Plain value passthrough
         return raw_value
@@ -413,10 +353,16 @@ class SwiftCommandCounterSensor(SwiftCommandEntity, SensorEntity):
     _attr_icon = "mdi:counter"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, coordinator: SwiftCommandCoordinator, chassis_number: str, name_suffix: str, getter):
+    def __init__(
+        self,
+        coordinator: SwiftCommandCoordinator,
+        chassis_number: str,
+        name_suffix: str,
+        getter: Callable[[], int],
+    ) -> None:
         super().__init__(coordinator, chassis_number)
         self._getter = getter
-        self._attr_name = name_suffix  # simplified
+        self._attr_name = name_suffix
         slug = name_suffix.lower().replace(" ", "_")
         self._attr_unique_id = f"{DOMAIN}_{self._chassis_number}_counter_{slug}"
 
@@ -431,14 +377,65 @@ class SwiftCommandTimestampSensor(SwiftCommandEntity, SensorEntity):
     _attr_icon = "mdi:update"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
-    def __init__(self, coordinator: SwiftCommandCoordinator, chassis_number: str, name_suffix: str, *, can: bool = False) -> None:
+    def __init__(
+        self,
+        coordinator: SwiftCommandCoordinator,
+        chassis_number: str,
+        name_suffix: str,
+        *,
+        can: bool = False,
+    ) -> None:
         super().__init__(coordinator, chassis_number)
-        self._attr_name = name_suffix  # simplified
+        self._attr_name = name_suffix
         key = "last_can_update" if can else "last_full_update"
         self._attr_unique_id = f"{DOMAIN}_{self._chassis_number}_{key}"
-
         self._for_can = can
 
     @property
     def native_value(self):
-        return self.coordinator._last_can_update_time if self._for_can else self.coordinator._last_full_update_time
+        if self._for_can:
+            return self.coordinator.last_can_update_time
+        return self.coordinator.last_full_update_time
+
+
+class SwiftCommandJsonOverviewSensor(SwiftCommandEntity, SensorEntity):
+    """Diagnostic sensor: number of keys + expose full JSON payload as attributes."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:code-json"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: SwiftCommandCoordinator,
+        chassis_number: str,
+        name_suffix: str,
+        root_key: str,
+    ) -> None:
+        super().__init__(coordinator, chassis_number)
+        self._root_key = root_key
+        self._attr_name = name_suffix
+        self._attr_unique_id = f"{DOMAIN}_{self._chassis_number}_json_{root_key}"
+
+    def _payload(self) -> dict | None:
+        payload = (self.coordinator.data or {}).get(self._root_key)
+        return payload if isinstance(payload, dict) else None
+
+    @property
+    def native_value(self) -> int | None:
+        payload = self._payload()
+        if payload is None:
+            return None
+        return len(_flatten_json(payload))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attrs: dict[str, Any] = {}
+        payload = self._payload()
+        if payload is not None:
+            flat = _flatten_json(payload)
+            for k, v in flat.items():
+                attrs[str(k)] = v if isinstance(v, (str, int, float, bool, type(None))) else str(v)
+            attrs["payload_key"] = self._root_key
+            attrs["key_count"] = len(flat)
+        return attrs

@@ -8,12 +8,12 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import SwiftCommandCoordinator
-from .const import DEFAULT_CAN_SECTIONS, DOMAIN
+from .const import CONF_CAN_SECTIONS, DEFAULT_CAN_SECTIONS, DOMAIN
+from .coordinator import SwiftCommandCoordinator
 from .entity import SwiftCommandEntity
 from .util import get_nested_value
 
@@ -86,7 +86,7 @@ async def async_setup_entry(
                     )
                 )
 
-    can_sections = config_entry.options.get("can_sections", DEFAULT_CAN_SECTIONS)
+    can_sections = config_entry.options.get(CONF_CAN_SECTIONS, DEFAULT_CAN_SECTIONS)
     for section in can_sections:
         if section_data := can_bus_data.get(section):
             add_can_binary_sensors(section_data, [section])

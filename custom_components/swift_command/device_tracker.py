@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from . import SwiftCommandCoordinator
+from .coordinator import SwiftCommandCoordinator
 from .entity import SwiftCommandEntity
 from .util import get_nested_value
 

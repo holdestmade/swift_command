@@ -2,16 +2,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Any
+from typing import Any, Iterable
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def _get_nested_value(data: dict | list | None, keys: Iterable[Any]) -> Any | None:
-    """Safely get a nested value from a dict/list by walking `keys`.
-
-    Private helper; use the public alias `get_nested_value` for imports.
-    """
+def get_nested_value(data: dict | list | None, keys: Iterable[Any]) -> Any | None:
+    """Safely get a nested value from a dict/list by walking `keys`."""
     current: Any = data
     for key_idx, key in enumerate(keys):
         if isinstance(current, dict) and key in current:
@@ -29,10 +26,6 @@ def _get_nested_value(data: dict | list | None, keys: Iterable[Any]) -> Any | No
     return current
 
 
-# Public alias (import this everywhere)
-get_nested_value = _get_nested_value
-
-
 def calculate_power_watts(
     amps: float | None,
     measured_volts: float | None,
@@ -48,9 +41,6 @@ def calculate_power_watts(
     """
     if amps is None:
         return None
-    v = measured_volts if measured_volts is not None else default_volts
-    a = abs(amps) if absolute else amps
-    try:
-        return round(a * v, 1)
-    except Exception:  # noqa: BLE001
-        return None
+    volts = measured_volts if measured_volts is not None else default_volts
+    current = abs(amps) if absolute else amps
+    return round(current * volts, 1)
