@@ -8,7 +8,7 @@ from typing import Any, Iterable
 _LOGGER = logging.getLogger(__name__)
 
 # Words rendered fully uppercase in friendly names
-_ACRONYMS = {"psu", "enum", "ac", "dc", "id", "gps", "cp", "ec630"}
+_ACRONYMS = {"psu", "enum", "ac", "dc", "id", "gps", "cp", "ec630", "atc"}
 
 _CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _ACRONYM_BOUNDARY_RE = re.compile(r"(?<=[A-Z])(?=[A-Z][a-z])")
