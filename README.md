@@ -13,7 +13,7 @@ This repository contains a custom [Home Assistant](https://www.home-assistant.io
 ## Requirements
 
 * A working Swift Command / Swift Remote account with a compatible vehicle.
-* Home Assistant 2023.8 or newer (the integration relies on modern config flow selectors and the shared `httpx` client).
+* Home Assistant 2024.11 or newer (the integration relies on modern config flow, options flow and re-authentication helpers).
 
 ## Installation
 

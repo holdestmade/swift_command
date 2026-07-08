@@ -5,11 +5,12 @@ import logging
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
-from . import SwiftCommandCoordinator
+from .const import CAN_COMMAND_ENDPOINT, DOMAIN
+from .coordinator import SwiftCommandCoordinator
 from .entity import SwiftCommandEntity
 from .util import get_nested_value
 
@@ -43,6 +44,9 @@ async def async_setup_entry(
 class SwiftCommandPowerSwitch(SwiftCommandEntity, SwitchEntity):
     """Representation of the Swift Command Power Switch."""
 
+    _attr_name = "Power"
+    _attr_icon = "mdi:power"
+
     def __init__(
         self,
         coordinator: SwiftCommandCoordinator,
@@ -51,14 +55,21 @@ class SwiftCommandPowerSwitch(SwiftCommandEntity, SwitchEntity):
         """Initialize the switch."""
         super().__init__(coordinator, chassis_number)
         self._attr_unique_id = f"{DOMAIN}_{self._chassis_number}_power_switch"
-        self._attr_name = "Power"  # simplified
-        self._attr_icon = "mdi:power"
         self._toggle_payload = [4, 19, 100, 100, 4, 0, 0, 0]
+        self._override_state: bool | None = None
 
     @property
     def is_on(self) -> bool | None:
         """Return true if the switch is on."""
+        if self._override_state is not None:
+            return self._override_state
         return get_nested_value(self.coordinator.data, ["can_bus_data", "psuStatus1", "powerOn"])
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Clear the optimistic override once fresh data arrives."""
+        self._override_state = None
+        super()._handle_coordinator_update()
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the switch on."""
@@ -69,5 +80,17 @@ class SwiftCommandPowerSwitch(SwiftCommandEntity, SwitchEntity):
         await self._send_toggle_command()
 
     async def _send_toggle_command(self) -> None:
-        """Send the toggle command to the API via the coordinator service."""
-        await self.coordinator.async_send_can_command(11, self._toggle_payload)
+        """Send the toggle command with an optimistic state flip."""
+        current = self.is_on
+        self._override_state = (not current) if current is not None else True
+        self.async_write_ha_state()
+
+        try:
+            await self.coordinator.async_send_can_command(
+                CAN_COMMAND_ENDPOINT, self._toggle_payload
+            )
+        except HomeAssistantError:
+            # Revert the optimistic flip if the command could not be sent
+            self._override_state = None
+            self.async_write_ha_state()
+            raise
