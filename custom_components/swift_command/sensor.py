@@ -159,15 +159,27 @@ async def async_setup_entry(
             "entity_category": EntityCategory.DIAGNOSTIC,
         },
         {
-            "name_suffix": "Leisure Voltage",
+            "name_suffix": "Leisure Battery Voltage",
             "value_path": ["customer_data", "vehicles", 0, "lastPosition", "leisureVoltage"],
             "unit_of_measurement": "V",
             "device_class": SensorDeviceClass.VOLTAGE,
             "state_class": SensorStateClass.MEASUREMENT,
         },
         {
-            "name_suffix": "Alarm Triggered Leisure Voltage",
+            "name_suffix": "Alarm Triggered Leisure Battery Voltage",
             "value_path": ["customer_data", "vehicles", 0, "lastPosition", "alarmTriggeredLeisureVoltage"],
+            "unit_of_measurement": "V",
+            "device_class": SensorDeviceClass.VOLTAGE,
+            "state_class": SensorStateClass.MEASUREMENT,
+        },
+    ]
+
+    # Dedicated CAN bus sensors (their keys are in _EXCLUDED_CAN_KEYS so the
+    # dynamic CAN sensor loop below does not create duplicates for them).
+    can_bus_sensors = [
+        {
+            "name_suffix": "Leisure Battery Voltage (CAN)",
+            "value_path": ["can_bus_data", "levels3", "leisureBatteryVoltage"],
             "unit_of_measurement": "V",
             "device_class": SensorDeviceClass.VOLTAGE,
             "state_class": SensorStateClass.MEASUREMENT,
@@ -205,7 +217,7 @@ async def async_setup_entry(
         },
     ]
 
-    for sensor_info in customer_data_sensors + can_bus_power_sensors:
+    for sensor_info in customer_data_sensors + can_bus_sensors + can_bus_power_sensors:
         entities.append(
             SwiftCommandSensor(
                 coordinator,
