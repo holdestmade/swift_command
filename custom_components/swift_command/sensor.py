@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable
 
 from homeassistant.components.sensor import (
@@ -19,7 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import CONF_CAN_SECTIONS, DEFAULT_CAN_SECTIONS, DOMAIN
 from .coordinator import SwiftCommandCoordinator
 from .entity import SwiftCommandEntity
-from .util import calculate_power_watts, get_nested_value, prettify_key
+from .util import calculate_power_watts, get_nested_value, parse_fix_time, prettify_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,19 +51,6 @@ def _to_float(value: str | int | float | None) -> float | None:
             except ValueError:
                 return None
     return None
-
-
-def _parse_fix_time(value: Any) -> datetime | None:
-    """Parse lastPosition.fixTime (e.g. 20260716080127, YYYYMMDDHHMMSS in UTC)."""
-    if value is None:
-        return None
-    s = str(value).strip()
-    if len(s) != 14 or not s.isdigit():
-        return None
-    try:
-        return datetime.strptime(s, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
-    except ValueError:
-        return None
 
 
 def _flatten_json(obj: Any, prefix: str = "") -> dict[str, Any]:
@@ -448,7 +435,7 @@ class SwiftCommandLastTrackedSensor(SwiftCommandEntity, SensorEntity):
             self.coordinator.data,
             ["customer_data", "vehicles", 0, "lastPosition", "fixTime"],
         )
-        return _parse_fix_time(raw)
+        return parse_fix_time(raw)
 
 
 class SwiftCommandJsonOverviewSensor(SwiftCommandEntity, SensorEntity):
