@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,15 +51,19 @@ def get_nested_value(data: dict | list | None, keys: Iterable[Any]) -> Any | Non
     return current
 
 
+# The Swift Command backend reports fixTime in UK local time (GMT/BST)
+_FIX_TIME_TZ = ZoneInfo("Europe/London")
+
+
 def parse_fix_time(value: Any) -> datetime | None:
-    """Parse lastPosition.fixTime (e.g. 20260716080127, YYYYMMDDHHMMSS in UTC)."""
+    """Parse lastPosition.fixTime (e.g. 20260716080127, YYYYMMDDHHMMSS, UK local time)."""
     if value is None:
         return None
     s = str(value).strip()
     if len(s) != 14 or not s.isdigit():
         return None
     try:
-        return datetime.strptime(s, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+        return datetime.strptime(s, "%Y%m%d%H%M%S").replace(tzinfo=_FIX_TIME_TZ)
     except ValueError:
         return None
 
