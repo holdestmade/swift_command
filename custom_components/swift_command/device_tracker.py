@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
 from .coordinator import SwiftCommandCoordinator
 from .entity import SwiftCommandEntity
-from .util import get_nested_value
+from .util import get_nested_value, parse_fix_time
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,4 +77,10 @@ class SwiftCommandDeviceTracker(SwiftCommandEntity, TrackerEntity):
             self.coordinator.data, ["customer_data", "vehicles", 0, "lastPosition", "timeToFix"]
         ):
             attrs["time_to_fix"] = gps_accuracy
+        if last_tracked := parse_fix_time(
+            get_nested_value(
+                self.coordinator.data, ["customer_data", "vehicles", 0, "lastPosition", "fixTime"]
+            )
+        ):
+            attrs["last_tracked"] = last_tracked
         return attrs

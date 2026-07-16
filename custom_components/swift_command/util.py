@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,6 +48,19 @@ def get_nested_value(data: dict | list | None, keys: Iterable[Any]) -> Any | Non
             )
             return None
     return current
+
+
+def parse_fix_time(value: Any) -> datetime | None:
+    """Parse lastPosition.fixTime (e.g. 20260716080127, YYYYMMDDHHMMSS in UTC)."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if len(s) != 14 or not s.isdigit():
+        return None
+    try:
+        return datetime.strptime(s, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def calculate_power_watts(
