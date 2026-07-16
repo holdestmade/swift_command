@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from homeassistant.components.sensor import (
@@ -50,6 +51,19 @@ def _to_float(value: str | int | float | None) -> float | None:
             except ValueError:
                 return None
     return None
+
+
+def _parse_fix_time(value: Any) -> datetime | None:
+    """Parse lastPosition.fixTime (e.g. 20260716080127, YYYYMMDDHHMMSS in UTC)."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if len(s) != 14 or not s.isdigit():
+        return None
+    try:
+        return datetime.strptime(s, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def _flatten_json(obj: Any, prefix: str = "") -> dict[str, Any]:
@@ -303,6 +317,9 @@ async def async_setup_entry(
     entities.append(SwiftCommandTimestampSensor(coordinator, chassis_number, "Last Update"))
     entities.append(SwiftCommandTimestampSensor(coordinator, chassis_number, "Last CAN Update", can=True))
 
+    # Timestamp of the tracker's last reported position fix
+    entities.append(SwiftCommandLastTrackedSensor(coordinator, chassis_number))
+
     async_add_entities(entities)
 
 
@@ -408,6 +425,30 @@ class SwiftCommandTimestampSensor(SwiftCommandEntity, SensorEntity):
         if self._for_can:
             return self.coordinator.last_can_update_time
         return self.coordinator.last_full_update_time
+
+
+class SwiftCommandLastTrackedSensor(SwiftCommandEntity, SensorEntity):
+    """Timestamp of the tracker's last position fix (lastPosition.fixTime).
+
+    Unlike "Last Update" (when the integration last polled the API), this
+    reflects when the tracker hardware last reported a position.
+    """
+
+    _attr_icon = "mdi:map-clock"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator: SwiftCommandCoordinator, chassis_number: str) -> None:
+        super().__init__(coordinator, chassis_number)
+        self._attr_name = "Last Tracked"
+        self._attr_unique_id = f"{DOMAIN}_{self._chassis_number}_last_tracked"
+
+    @property
+    def native_value(self) -> datetime | None:
+        raw = get_nested_value(
+            self.coordinator.data,
+            ["customer_data", "vehicles", 0, "lastPosition", "fixTime"],
+        )
+        return _parse_fix_time(raw)
 
 
 class SwiftCommandJsonOverviewSensor(SwiftCommandEntity, SensorEntity):
