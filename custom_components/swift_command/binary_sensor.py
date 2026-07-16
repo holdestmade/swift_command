@@ -9,7 +9,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CONF_CAN_SECTIONS, DEFAULT_CAN_SECTIONS, DOMAIN
@@ -33,7 +33,6 @@ async def async_setup_entry(
     entities: list[BinarySensorEntity] = []
 
     vehicle_data = get_nested_value(coordinator.data, ["customer_data", "vehicles", 0])
-    can_bus_data = coordinator.data.get("can_bus_data", {})
 
     global _WARNED_NO_VEHICLE
     if not vehicle_data:
@@ -49,49 +48,77 @@ async def async_setup_entry(
     entities.append(SwiftCommandTokenSensor(coordinator, chassis_number))
     entities.append(SwiftCommandCanStatusSensor(coordinator, chassis_number))
 
-    # Recursively find boolean values and create binary sensors
-    def add_can_binary_sensors(data: dict, base_value_path: list):
-        if not isinstance(data, dict):
-            return
-
-        for key, value in data.items():
-            if key == "id":
-                continue
-
-            current_full_path = base_value_path + [key]
-            if isinstance(value, dict):
-                add_can_binary_sensors(value, current_full_path)
-            elif isinstance(value, bool):
-                human_readable_key = prettify_key(key)
-
-                device_class = None
-                icon = None
-
-                lower_key = key.lower()
-                if any(x in lower_key for x in ["poweron", "mains", "acpresent"]):
-                    device_class = BinarySensorDeviceClass.POWER
-                elif any(x in lower_key for x in ["warning", "fault", "error"]):
-                    device_class = BinarySensorDeviceClass.PROBLEM
-                elif any(x in lower_key for x in ["run", "pump"]):
-                    device_class = BinarySensorDeviceClass.RUNNING
-
-                entities.append(
-                    SwiftCommandBinarySensor(
-                        coordinator,
-                        chassis_number,
-                        human_readable_key,
-                        ["can_bus_data"] + current_full_path,
-                        device_class,
-                        icon,
-                    )
-                )
-
+    # Recursively find boolean values and create binary sensors. CAN data may
+    # be missing on the first refresh (the fetch is non-fatal), so discovery
+    # re-runs on every coordinator update and adds entities for any paths not
+    # seen before.
     can_sections = config_entry.options.get(CONF_CAN_SECTIONS, DEFAULT_CAN_SECTIONS)
-    for section in can_sections:
-        if section_data := can_bus_data.get(section):
-            add_can_binary_sensors(section_data, [section])
+    known_can_paths: set[tuple] = set()
+
+    def discover_can_binary_sensors() -> list[BinarySensorEntity]:
+        new_entities: list[BinarySensorEntity] = []
+        can_data = (coordinator.data or {}).get("can_bus_data", {})
+
+        def add_can_binary_sensors(data: dict, base_value_path: list) -> None:
+            if not isinstance(data, dict):
+                return
+
+            for key, value in data.items():
+                if key == "id":
+                    continue
+
+                current_full_path = base_value_path + [key]
+                if isinstance(value, dict):
+                    add_can_binary_sensors(value, current_full_path)
+                elif isinstance(value, bool):
+                    if tuple(current_full_path) in known_can_paths:
+                        continue
+                    known_can_paths.add(tuple(current_full_path))
+
+                    human_readable_key = prettify_key(key)
+
+                    device_class = None
+                    icon = None
+
+                    lower_key = key.lower()
+                    if any(x in lower_key for x in ["poweron", "mains", "acpresent"]):
+                        device_class = BinarySensorDeviceClass.POWER
+                    elif any(x in lower_key for x in ["warning", "fault", "error"]):
+                        device_class = BinarySensorDeviceClass.PROBLEM
+                    elif any(x in lower_key for x in ["run", "pump"]):
+                        device_class = BinarySensorDeviceClass.RUNNING
+
+                    new_entities.append(
+                        SwiftCommandBinarySensor(
+                            coordinator,
+                            chassis_number,
+                            human_readable_key,
+                            ["can_bus_data"] + current_full_path,
+                            device_class,
+                            icon,
+                        )
+                    )
+
+        for section in can_sections:
+            if section_data := can_data.get(section):
+                add_can_binary_sensors(section_data, [section])
+        return new_entities
+
+    entities.extend(discover_can_binary_sensors())
 
     async_add_entities(entities)
+
+    @callback
+    def _async_discover_new_can_binary_sensors() -> None:
+        if new_entities := discover_can_binary_sensors():
+            _LOGGER.debug(
+                "Adding %d newly discovered CAN binary sensors", len(new_entities)
+            )
+            async_add_entities(new_entities)
+
+    config_entry.async_on_unload(
+        coordinator.async_add_listener(_async_discover_new_can_binary_sensors)
+    )
 
 
 class SwiftCommandTokenSensor(SwiftCommandEntity, BinarySensorEntity):
